@@ -13,23 +13,23 @@ namespace ExchangeRateUpdater
         /// do not return exchange rate "USD/EUR" with value calculated as 1 / "EUR/USD". If the source does not provide
         /// some of the currencies, ignore them.
         /// </summary>
-        /// 
+      
 
         private const string CZECH_CURRENCY = "CZK";
 
         public IEnumerable<ExchangeRate> GetExchangeRates(IEnumerable<Currency> currencies)
         {
-            var listCurrencies = currencies.ToList();
+            var dictCurrencies = currencies.ToDictionary(c => c.Code, c => c);
 
-            if (listCurrencies.Exists(c => c.Code.Equals(CZECH_CURRENCY)) == false)
+            if (currencies.FirstOrDefault(c => c.Code == CZECH_CURRENCY) == null)
                 throw new ArgumentException($"Specified currencies does not contain Czech currency({CZECH_CURRENCY})");
 
             var cnbData = CnbClient.GetCnbRates();
-            return GetRatesFromString(cnbData, listCurrencies);
+            return GetRatesFromString(cnbData, dictCurrencies);
         }
 
 
-        internal static List<ExchangeRate> GetRatesFromString(string cnbData, List<Currency> currencies)
+        internal static List<ExchangeRate> GetRatesFromString(string cnbData, Dictionary<string, Currency> currencies)
         {
             if (cnbData == null) throw new ArgumentNullException(nameof(cnbData));
             if (string.IsNullOrWhiteSpace(cnbData))
@@ -42,6 +42,10 @@ namespace ExchangeRateUpdater
 
             // Process lines
             var rateList = new List<ExchangeRate>();
+            decimal rate;
+            Currency foreignCurrency;
+            Currency czechCurrency = currencies[CZECH_CURRENCY];  // it exists, check is in GetExchangeRates()
+
             for (int i = 2; i < lines.Length; i++)  // skip first two lines. Real data starts on third
             {
                 try
@@ -50,11 +54,12 @@ namespace ExchangeRateUpdater
                     var data = lines[i].Split('|');
                     if (data.Length != 5) throw new FormatException($"Expected 5 segments, got {data.Length}.");
 
-                    var rate = decimal.Parse(data[4], CultureInfo.GetCultureInfo("cs-CZ"));
-                    var amount = int.Parse(data[2]);
+                    rate = decimal.Parse(data[4], CultureInfo.GetCultureInfo("cs-CZ"));
+                    var amount = int.Parse(data[2], CultureInfo.GetCultureInfo("cs-CZ"));
 
-                    if (currencies.Exists(c => c.Code.Equals(data[3])))
-                        rateList.Add(new ExchangeRate(new Currency(data[3]), new Currency(CZECH_CURRENCY), rate / amount));
+                    if (currencies.TryGetValue(data[3], out foreignCurrency))
+                        rateList.Add(new ExchangeRate(foreignCurrency, czechCurrency, rate / amount));
+
                 }
                 catch (Exception e)
                 {
